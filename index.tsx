@@ -283,7 +283,7 @@ const Feature = ({ icon, title, description }: { icon: React.ReactElement, title
 
 const HomePage = ({ onStart, onViewReports }: { onStart: () => void; onViewReports: () => void; }) => (
     <div className="w-full">
-        <div className="card text-center p-8 md:p-12 max-w-4xl mx-auto">
+        <div className="card text-center p-8 md:p-12 max-w-4xl mx-auto mt-16">
             <h1 className="text-4xl md:text-5xl font-bold text-gray-800 dark:text-gray-200">AI-Powered Disease Prediction</h1>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">Get a preliminary diagnosis based on your symptoms using advanced AI. Our system analyzes your inputs to provide instant, informative results.</p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
