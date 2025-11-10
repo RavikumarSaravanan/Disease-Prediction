@@ -1,0 +1,257 @@
+# MediPredict AI - MongoDB Backend Setup Guide
+
+This document provides a step-by-step guide to set up a MongoDB database using MongoDB Atlas and create a simple Node.js/Express backend server to store and retrieve medical reports for the MediPredict AI application.
+
+**IMPORTANT SECURITY NOTE:** This entire setup is for a **backend server**. Your MongoDB connection string and credentials must **NEVER** be exposed in your frontend (browser-side) code.
+
+---
+
+### Prerequisites
+
+- A free [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) account.
+- [Node.js](https://nodejs.org/) and `npm` installed on your machine for setting up the server.
+
+---
+
+### Step 1: Create a Database on MongoDB Atlas
+
+1.  **Sign Up/Log In**: Go to the [MongoDB Atlas website](https://www.mongodb.com/cloud/atlas) and create an account or log in.
+
+2.  **Create a New Project**:
+    - After logging in, you'll be prompted to create a new project. Give it a name like `MediPredictAI`.
+
+3.  **Build a Database**:
+    - Click the "Build a Database" button.
+    - Choose the **Free "Shared"** plan (M0 Sandbox). This is perfect for development and small-scale applications.
+    - Select a cloud provider and region (choose one geographically close to you for lower latency).
+    - You can leave the other settings as default. Click "Create" to build your cluster. This might take a few minutes.
+
+---
+
+### Step 2: Configure Database Access and Security
+
+1.  **Create a Database User**:
+    - In your Atlas dashboard, navigate to "Database Access" under the "SECURITY" section in the left-hand menu.
+    - Click "Add New Database User".
+    - Choose "Password" as the authentication method.
+    - Enter a **username** (e.g., `medipredict_user`) and a **strong password**. **Save this password somewhere secure, as you'll need it for your connection string.**
+    - For permissions, you can select "Read and write to any database" for simplicity during development.
+    - Click "Add User".
+
+2.  **Configure Network Access (IP Whitelisting)**:
+    - Go to "Network Access" under the "SECURITY" section.
+    - Click "Add IP Address".
+    - To allow access from anywhere (useful for development, but less secure), enter `0.0.0.0/0` and click "Confirm".
+    - **For production, you should replace this with the specific IP address of your deployed backend server.**
+
+---
+
+### Step 3: Get Your Connection String
+
+1.  Navigate back to your "Database" dashboard.
+2.  Click the "Connect" button for your newly created cluster.
+3.  Choose the "Drivers" connection method.
+4.  Under "Driver," select **Node.js** and the latest version.
+5.  Copy the provided **Connection String**. It will look something like this:
+    ```
+    mongodb+srv://<username>:<password>@cluster0.evxvn1d.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+    ```
+6.  You will need to replace `<password>` with the password you created in Step 2. You can also specify a database name before the `?`, for example: `...mongodb.net/mediPredictDB?retryWrites...`
+
+---
+
+### Step 4: Set Up the Node.js Backend Server
+
+This server will act as the middleman between your frontend application and your MongoDB database.
+
+1.  **Create a new folder** for your backend server, separate from your frontend project.
+    ```bash
+    mkdir medipredict-backend
+    cd medipredict-backend
+    ```
+
+2.  **Initialize a Node.js project and install dependencies**:
+    ```bash
+    npm init -y
+    npm install express mongoose cors dotenv
+    ```
+    - `express`: Web server framework.
+    - `mongoose`: A tool to model your application data for MongoDB.
+    - `cors`: To allow requests from your frontend application.
+    - `dotenv`: To manage environment variables (like your connection string).
+
+3.  **Create a `.env` file** in the `medipredict-backend` root to store your connection string securely.
+    ```
+    MONGO_DB_CONNECTION_STRING="YOUR_CONNECTION_STRING_HERE"
+    PORT=5000
+    ```
+    - Replace `YOUR_CONNECTION_STRING_HERE` with the string from Step 3 (with your password).
+
+4.  **Create a `server.js` file** and add the following code:
+
+    ```javascript
+    const express = require('express');
+    const mongoose = require('mongoose');
+    const cors = require('cors');
+    require('dotenv').config();
+
+    const app = express();
+    const PORT = process.env.PORT || 5000;
+
+    // --- Middleware ---
+    app.use(cors()); // Allow cross-origin requests
+    app.use(express.json({ limit: '5mb' })); // To parse JSON request bodies and set a limit for images
+
+    // --- MongoDB Connection ---
+    mongoose.connect(process.env.MONGO_DB_CONNECTION_STRING)
+        .then(() => console.log('Successfully connected to MongoDB Atlas.'))
+        .catch(err => console.error('Connection error', err));
+
+    // --- Mongoose Schema and Model ---
+    // This schema MUST match the structure of the 'Report' type in your frontend.
+    const reportSchema = new mongoose.Schema({
+        id: { type: String, required: true, unique: true },
+        date: { type: String, required: true },
+        patient: {
+            name: String,
+            age: String,
+            gender: String,
+            contact: String,
+            email: String,
+        },
+        symptoms: [String],
+        result: {
+            predictedDisease: String,
+            description: String,
+            precautions: [String],
+            medications: [String],
+            diet: [String],
+            disclaimer: String,
+        },
+        image: String, // Stores the base64 string of the image
+    });
+
+    const Report = mongoose.model('Report', reportSchema);
+
+    // --- API Routes ---
+
+    // GET all reports
+    app.get('/api/reports', async (req, res) => {
+        try {
+            const reports = await Report.find().sort({ id: -1 }); // Sort by most recent
+            res.json(reports);
+        } catch (error) {
+            res.status(500).json({ message: 'Error fetching reports', error });
+        }
+    });
+    
+    // GET reports for a specific user
+    app.get('/api/reports/user', async (req, res) => {
+        const { name, age } = req.query;
+        if (!name || !age) {
+            return res.status(400).json({ message: 'Name and age are required query parameters.' });
+        }
+        try {
+            // Case-insensitive search
+            const reports = await Report.find({
+                'patient.name': new RegExp(`^${name}$`, 'i'),
+                'patient.age': age
+            }).sort({ id: -1 });
+            res.json(reports);
+        } catch (error) {
+            res.status(500).json({ message: 'Error fetching user reports', error });
+        }
+    });
+
+    // POST a new report
+    app.post('/api/reports', async (req, res) => {
+        try {
+            const newReport = new Report(req.body);
+            await newReport.save();
+            res.status(201).json({ message: 'Report saved successfully!', report: newReport });
+        } catch (error) {
+            res.status(400).json({ message: 'Error saving report', error });
+        }
+    });
+
+    // --- Start the server ---
+    app.listen(PORT, () => {
+        console.log(`Server is running on http://localhost:${PORT}`);
+    });
+    ```
+
+5.  **Run your backend server**:
+    ```bash
+    node server.js
+    ```
+    You should see "Server is running..." and "Successfully connected to MongoDB Atlas." in your terminal.
+
+---
+
+### Step 5: Update Frontend to Use the Backend API
+
+In your `index.tsx` file, you would modify the `fetchReportsFromDb` and `saveReportToDb` functions to make HTTP requests to your new backend instead of using `localStorage`.
+
+Here's how they would look (this is for future implementation):
+
+```typescript
+// --- DATA PERSISTENCE (Future Update Example) ---
+
+const API_BASE_URL = 'http://localhost:5000'; // Your backend server URL
+
+// This function would be used by an admin to get all reports
+async function fetchAllReportsFromDb(): Promise<Report[]> {
+    console.log("Fetching all reports from the server...");
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/reports`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const reports = await response.json();
+        return reports;
+    } catch (error) {
+        console.error("Could not fetch reports from server:", error);
+        return [];
+    }
+}
+
+// This function would be used by a patient to get their specific reports
+async function fetchUserReportsFromDb(name: string, age: string): Promise<Report[]> {
+    console.log(`Fetching reports for ${name}, age ${age} from the server...`);
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/reports/user?name=${encodeURIComponent(name)}&age=${encodeURIComponent(age)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const reports = await response.json();
+        return reports;
+    } catch (error) {
+        console.error("Could not fetch user reports from server:", error);
+        return [];
+    }
+}
+
+
+async function saveReportToDb(report: Report): Promise<void> {
+    console.log("Saving report to the server...", report);
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/reports`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(report),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log("Report saved successfully to the database:", result.message);
+    } catch (error) {
+        console.error("Could not save the report to the server:", error);
+    }
+}
+```
+You would then update your `handleUserLoginAttempt` and `handleAdminLoginAttempt` functions to use these new async functions.
