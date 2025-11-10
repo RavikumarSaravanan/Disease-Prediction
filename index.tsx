@@ -44,7 +44,6 @@ type Page = 'home' | 'form' | 'symptoms' | 'result' | 'reports' | 'loading';
 // --- CONSTANTS ---
 // Fix: Per coding guidelines, the API key must be obtained from process.env.API_KEY.
 // This also resolves the TypeScript error "Property 'env' does not exist on type 'ImportMeta'".
-// const API_KEY = process.env.API_KEY;
 const API_KEY = import.meta.env.VITE_API_KEY;
 
 if (!API_KEY) {
@@ -95,30 +94,57 @@ const formatSymptom = (symptom: string) => {
 };
 
 // --- DATA PERSISTENCE ---
-async function fetchReportsFromDb(): Promise<Report[]> {
-    console.log("Fetching reports from localStorage...");
+const API_BASE_URL = 'http://localhost:5000'; // Backend server URL
+
+async function fetchAllReportsFromDb(): Promise<Report[]> {
+    console.log("Fetching all reports from the server...");
     try {
-        const reportsJson = localStorage.getItem('medical_reports');
-        if (reportsJson) {
-            const reports = JSON.parse(reportsJson) as Report[];
-            return reports.sort((a, b) => new Date(b.id).getTime() - new Date(a.id).getTime());
+        const response = await fetch(`${API_BASE_URL}/api/reports`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-        return [];
+        const reports = await response.json();
+        return reports;
     } catch (error) {
-        console.error("Could not fetch or parse reports from localStorage:", error);
+        console.error("Could not fetch reports from server:", error);
+        return [];
+    }
+}
+
+async function fetchUserReportsFromDb(name: string, age: string): Promise<Report[]> {
+    console.log(`Fetching reports for ${name}, age ${age} from the server...`);
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/reports/user?name=${encodeURIComponent(name)}&age=${encodeURIComponent(age)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const reports = await response.json();
+        return reports;
+    } catch (error) {
+        console.error("Could not fetch user reports from server:", error);
         return [];
     }
 }
 
 async function saveReportToDb(report: Report): Promise<void> {
-    console.log("Saving report to localStorage...", report);
+    console.log("Saving report to the server...", report);
     try {
-        const existingReports = await fetchReportsFromDb();
-        const newReports = [report, ...existingReports];
-        localStorage.setItem('medical_reports', JSON.stringify(newReports));
-        console.log("Report saved successfully to localStorage.");
+        const response = await fetch(`${API_BASE_URL}/api/reports`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(report),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log("Report saved successfully to the database:", result.message);
     } catch (error) {
-        console.error("Could not save the report to localStorage:", error);
+        console.error("Could not save the report to the server:", error);
     }
 }
 
@@ -1051,11 +1077,7 @@ const App = () => {
     };
 
     const handleUserLoginAttempt = async (name: string, age: string): Promise<boolean> => {
-        const allReports = await fetchReportsFromDb();
-        const userReports = allReports.filter(report =>
-            report.patient.name.toLowerCase().trim() === name.toLowerCase().trim() &&
-            report.patient.age.trim() === age.trim()
-        );
+        const userReports = await fetchUserReportsFromDb(name, age);
         if (userReports.length > 0) {
             setReports(userReports);
             setPage('reports');
@@ -1069,7 +1091,7 @@ const App = () => {
         const ADMIN_USER = 'admin';
         const ADMIN_PASS = 'password';
         if (user === ADMIN_USER && pass === ADMIN_PASS) {
-            const allReports = await fetchReportsFromDb();
+            const allReports = await fetchAllReportsFromDb();
             setReports(allReports);
             setPage('reports');
             setIsAuthModalOpen(false);
